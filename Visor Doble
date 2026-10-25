@@ -1,0 +1,143 @@
+package com.example.visordoble
+
+import android.content.Context
+import android.graphics.Matrix
+import android.util.AttributeSet
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import androidx.appcompat.widget.AppCompatImageView
+
+class ZoomImageView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : AppCompatImageView(context, attrs) {
+    private val matrix = Matrix()
+    private val scaleDetector: ScaleGestureDetector
+    private var scaleFactor = 1f
+    private var lastX = 0f
+    private var lastY = 0f
+    private var posX = 0f
+    private var posY = 0f
+
+    init {
+        scaleType = ScaleType.MATRIX
+        scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                scaleFactor *= detector.scaleFactor
+                scaleFactor = scaleFactor.coerceIn(0.5f, 5f)
+                updateMatrix()
+                return true
+            }
+        })
+    }
+
+    private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener(){
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            scaleFactor = 1f; posX = 0f; posY = 0f
+            updateMatrix()
+            return true
+        }
+    })
+
+    private fun updateMatrix() {
+        matrix.reset()
+        matrix.postScale(scaleFactor, scaleFactor, width/2f, height/2f)
+        matrix.postTranslate(posX, posY)
+        imageMatrix = matrix
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(event)
+        scaleDetector.onTouchEvent(event)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y }
+            MotionEvent.ACTION_MOVE -> {
+                if (!scaleDetector.isInProgress && scaleFactor > 1f) {
+                    posX += event.x - lastX
+                    posY += event.y - lastY
+                    updateMatrix()
+                    lastX = event.x; lastY = event.y
+                }
+            }
+        }
+        return true
+    }
+}
+package com.example.visordoble
+
+import android.net.Uri
+import android.os.Bundle
+import android.widget.Button
+import android.widget.MediaController
+import android.widget.VideoView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var image1: ZoomImageView
+    private lateinit var video1: VideoView
+    private lateinit var image2: ZoomImageView
+    private lateinit var video2: VideoView
+    private var activeSlot = 1
+
+    private val pickMedia = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let {
+            val type = contentResolver.getType(it) ?: ""
+            val isVideo = type.startsWith("video")
+            if (activeSlot == 1) showMedia(it, isVideo, image1, video1)
+            else showMedia(it, isVideo, image2, video2)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        image1 = findViewById(R.id.image1)
+        video1 = findViewById(R.id.video1)
+        image2 = findViewById(R.id.image2)
+        video2 = findViewById(R.id.video2)
+        findViewById<Button>(R.id.btn1).setOnClickListener { activeSlot = 1; pickMedia.launch("*/*") }
+        findViewById<Button>(R.id.btn2).setOnClickListener { activeSlot = 2; pickMedia.launch("*/*") }
+    }
+
+    private fun showMedia(uri: Uri, isVideo: Boolean, imageView: ZoomImageView, videoView: VideoView) {
+        if (isVideo) {
+            imageView.visibility = ZoomImageView.GONE
+            videoView.visibility = VideoView.VISIBLE
+            videoView.setVideoURI(uri)
+            val mc = MediaController(this)
+            mc.setAnchorView(videoView)
+            videoView.setMediaController(mc)
+            videoView.start()
+        } else {
+            videoView.visibility = VideoView.GONE
+            imageView.visibility = ZoomImageView.VISIBLE
+            imageView.setImageURI(uri)
+        }
+    }
+}
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#111">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:background="#222" android:layout_margin="4dp">
+        <Button android:id="@+id/btn1" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Abrir Archivo 1 (Foto o Video)" />
+        <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
+            <com.example.visordoble.ZoomImageView android:id="@+id/image1" android:layout_width="match_parent" android:layout_height="match_parent" />
+            <VideoView android:id="@+id/video1" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"/>
+        </FrameLayout>
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical" android:background="#222" android:layout_margin="4dp">
+        <Button android:id="@+id/btn2" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Abrir Archivo 2 (Foto o Video)" />
+        <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
+            <com.example.visordoble.ZoomImageView android:id="@+id/image2" android:layout_width="match_parent" android:layout_height="match_parent" />
+            <VideoView android:id="@+id/video2" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"/>
+        </FrameLayout>
+    </LinearLayout>
+</LinearLayout>
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:allowBackup="true" android:label="Visor Doble" android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+    </application>
+</manifest>
